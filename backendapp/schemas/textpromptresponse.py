@@ -1,5 +1,5 @@
 from pydantic import BaseModel
 
-class QueryRequest(BaseModel):
+class TextPromptResponse(BaseModel):
     """Base Model for User Query"""
-    query: str
+    response: str
