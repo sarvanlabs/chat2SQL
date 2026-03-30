@@ -1,4 +1,5 @@
 import re
+from datetime import date
 from typing import Any, Dict, List, Optional
 
 from app.db.db import get_connection
@@ -207,6 +208,33 @@ def get_company_profile(*, cin: str) -> Optional[Dict[str, Any]]:
     }
 
 
+def _normalize_date_of_incorporation(date_of_incorporation: Optional[str]):
+    if not date_of_incorporation or not isinstance(date_of_incorporation, str):
+        return None, None
+    s = date_of_incorporation.strip()
+
+    # full year AI style: 2025 -> use YEAR(Date_of_Incorporation)
+    if re.fullmatch(r"\d{4}", s):
+        return int(s), None
+
+    # full date year-month-day
+    m = re.fullmatch(r"(\d{4})(?:-(\d{2}))(?:-(\d{2}))?", s)
+    if not m:
+        return None, None
+    year, month, day = m.groups()
+
+    if month in (None, "00") or day in (None, "00"):
+        # fall back to year match for incomplete dates like 2025-00-00 or 2025-03-00
+        return int(year), None
+
+    # validate date and keep exact date string if valid
+    try:
+        date(int(year), int(month), int(day))
+        return None, f"{year}-{month}-{day}"
+    except ValueError:
+        return int(year), None
+
+
 def search_companies_by_filters(
     *,
     location: Optional[str] = None,
@@ -247,7 +275,13 @@ def search_companies_by_filters(
 
     # Build tokenized boolean query for FULLTEXT (if indexes exist).
     domain_q = _build_boolean_fulltext_query(domain_keywords) if domain_keywords else ""
+    print(f"Built domain boolean query: '{domain_q}' from raw input: '{domain_keywords}'")
     loc_q = _build_boolean_fulltext_query(location) if location else ""
+    print(f"Built location boolean query: '{loc_q}' from raw input: '{location}'")
+
+    # Support year-only filters for date_of_incorporation (e.g., 2025)
+    # and normalize invalid/full-zero dates like 2025-00-00 -> year match.
+    doi_year, doi_exact = _normalize_date_of_incorporation(date_of_incorporation)
 
     # Candidate columns we want to return.
     select_sql = """
@@ -279,9 +313,12 @@ def search_companies_by_filters(
         if location and loc_q:
             where_parts.append("MATCH(Registered_Address) AGAINST (%s IN BOOLEAN MODE)")
             params["loc_q"] = loc_q
-        if date_of_incorporation:
+        if doi_year is not None:
+            where_parts.append("YEAR(Date_of_Incorporation) = %s")
+            params["doi_year"] = doi_year
+        elif doi_exact is not None:
             where_parts.append("Date_of_Incorporation = %s")
-            params["doi"] = date_of_incorporation
+            params["doi_exact"] = doi_exact
 
         where_clause = " AND ".join(where_parts) if where_parts else "1=1"
 
@@ -303,8 +340,10 @@ def search_companies_by_filters(
             )
         if location and loc_q:
             param_list.append(params["loc_q"])
-        if date_of_incorporation:
-            param_list.append(params["doi"])
+        if doi_year is not None:
+            param_list.append(params["doi_year"])
+        elif doi_exact is not None:
+            param_list.append(params["doi_exact"])
         param_list.append(top_k)
 
         with get_connection() as conn:
@@ -340,9 +379,12 @@ def search_companies_by_filters(
         if loc_token:
             where_parts.append("UPPER(Registered_Address) LIKE %s")
             param_list.append(f"%{loc_token}%")
-        if date_of_incorporation:
+        if doi_year is not None:
+            where_parts.append("YEAR(Date_of_Incorporation) = %s")
+            param_list.append(doi_year)
+        elif doi_exact is not None:
             where_parts.append("Date_of_Incorporation = %s")
-            param_list.append(date_of_incorporation)
+            param_list.append(doi_exact)
 
         where_clause = " AND ".join(where_parts) if where_parts else "1=1"
 

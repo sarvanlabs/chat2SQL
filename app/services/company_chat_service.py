@@ -42,38 +42,38 @@ class CompanyChatService:
 
     async def _extract_intent_and_filters(self, user_query: str) -> Dict[str, Any]:
         prompt = f"""
-You are a JSON extraction assistant for a company database.
+        You are a JSON extraction assistant for a company database.
 
-Extract the user's intent and relevant fields for querying the company database.
-ONLY return a JSON object with this schema:
-{{
-  "action": "company_profile" | "company_list_by_filters" | "general_chat" | "unknown",
-  "cin": string | null,
-  "company_name": string | null,
-  "roc_code": string | null,
-  "location": string | null,
-  "domain_keywords": string | null,
-  "date_of_incorporation": string | null
-}}
+        Extract the user's intent and relevant fields for querying the company database.
+        ONLY return a JSON object with this schema:
+        {{
+        "action": "company_profile" | "company_list_by_filters" | "general_chat" | "unknown",
+        "cin": string | null,
+        "company_name": string | null,
+        "roc_code": string | null,
+        "location": string | null,
+        "domain_keywords": string | null,
+        "date_of_incorporation": string | null
+        }}
 
-Rules:
-- CIN is the unique 21-character identifier (uppercase). If the question includes a CIN, set it.
-- If the question asks about a single company (e.g., "tell me about ...", "profile of ...", "status of ..."),
-  infer company_name if CIN is not present.
-- If a ROC code is present, put it in roc_code (otherwise null).
-- If the question asks for multiple companies (e.g., "give me companies", "list companies", "show companies"),
-  set action to "company_list_by_filters".
-- If it says "registered in <place>" or similar, set location to <place>.
-- If it says "registered on <date>" / "incorporated on <date>", set date_of_incorporation to YYYY-MM-DD.
-- If it says a business/domain like "data, AI domain", set domain_keywords to those words/phrase.
-- If the question is not about company data (e.g., greetings, "how are you", "what are you doing"),
-  set action to "general_chat" and set all other fields to null.
-- If action is company_list_by_filters, cin/company_name may be null.
-- If you cannot identify, use action "unknown" and set fields conservatively to null.
+        Rules:
+        - CIN is the unique 21-character identifier (uppercase). If the question includes a CIN, set it.
+        - If the question asks about a single company (e.g., "tell me about ...", "profile of ...", "status of ..."),
+        infer company_name if CIN is not present.
+        - If a ROC code is present, put it in roc_code (otherwise null).
+        - If the question asks for multiple companies (e.g., "give me companies", "list companies", "show companies"),
+        set action to "company_list_by_filters".
+        - If it says "registered in <place>" or similar, set location to <place>.
+        - If it says "registered on <date>" / "incorporated on <date>", set date_of_incorporation to YYYY-MM-DD.
+        - If it says a business/domain like "data, AI domain", set domain_keywords to those words/phrase.
+        - If the question is not about company data (e.g., greetings, "how are you", "what are you doing"),
+        set action to "general_chat" and set all other fields to null.
+        - If action is company_list_by_filters, cin/company_name may be null.
+        - If you cannot identify, use action "unknown" and set fields conservatively to null.
 
-User question:
-{user_query}
-"""
+        User question:
+        {user_query}
+        """
         model_text = await self.llm.generate_text(prompt)
         data = self._extract_json(model_text) or {}
         return {
@@ -95,34 +95,35 @@ User question:
         # Provide compact context to the model.
         payload_json = json.dumps(payload, ensure_ascii=False)
         prompt = f"""
-You are a helpful assistant answering questions about an Indian company dataset.
+        You are a helpful assistant answering questions about an Indian companies dataset.
 
-Use ONLY the provided JSON data below to answer the user's question.
-If the data needed is not present, say so and ask for clarification.
+        Use ONLY the provided JSON data below to answer the user's question.
+        If the data needed is not present, say so and ask for clarification.
 
-Data type: {payload_type}
+        Data type: {payload_type}
 
-JSON:
-{payload_json}
+        JSON:
+        {payload_json}
 
-User question:
-{user_query}
+        User question:
+        {user_query}
 
-Answer guidelines:
-- Be concise and direct.
-- Do not invent values that aren't present in the JSON.
-- When relevant, include the CIN and company name.
-"""
+        Answer guidelines:
+        - Be humble and helpful.
+        - Be concise and direct.
+        - Do not invent values that aren't present in the JSON.
+        - When relevant, include the CIN and company name.
+        """
         return await self.llm.generate_text(prompt)
 
     async def _generate_general_chat_answer(self, user_query: str) -> str:
         prompt = f"""
-You are a helpful assistant.
-Answer the user normally to the best of your ability.
+            You are a helpful assistant.
+            Answer the user normally to the best of your ability.
 
-User message:
-{user_query}
-"""
+            User message:
+            {user_query}
+            """
         return await self.llm.generate_text(prompt)
 
     async def handle(self, user_query: str) -> str:
@@ -195,12 +196,18 @@ User message:
         if action == "company_list_by_filters":
             from app.db.company_repository import search_companies_by_filters
 
-            results = search_companies_by_filters(
-                location=location,
-                domain_keywords=domain_keywords,
-                date_of_incorporation=date_of_incorporation,
-                top_k=10,
-            )
+            try:
+                results = search_companies_by_filters(
+                    location=location,
+                    domain_keywords=domain_keywords,
+                    date_of_incorporation=date_of_incorporation,
+                    top_k=10,
+                )
+            except Exception as e:
+                return (
+                    "I couldn't process your date filter. "
+                    "Please specify a valid year (e.g., '2025') or full date 'YYYY-MM-DD'."
+                )
 
             if not results:
                 return (

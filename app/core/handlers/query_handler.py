@@ -1,6 +1,6 @@
 from fastapi import APIRouter
 from app.core.handlers.base_handler import BaseHandler
-from app.core.company_chat_service import CompanyChatService
+from app.core.orchestrator import Orchestrator
 
 
 class QueryHandler(BaseHandler):
@@ -17,12 +17,12 @@ class QueryHandler(BaseHandler):
             raise ValueError("Query cannot be empty")
 
     async def process(self, query, *args, **kwargs):  # type: ignore
-        """This method is used to handle the route to orchestrator and perform any validation or pre-processing before the actual route handler logic is executed."""
+        """This method validates the query and delegates business flow to Orchestrator."""
         print("Pre-processing before route handler")
         try:
             self.validate(query)
-            service = CompanyChatService()
-            response_text = await service.handle(query.query)
+            orchestrator = Orchestrator()
+            response_text = await orchestrator.handle_query(query.query)
             return response_text
         except Exception as e:
             print(f"Error in handling route: {e}")
