@@ -1,23 +1,40 @@
 import os
 from typing import Any, Dict, Optional
+import boto3
+import json
+import time
+from botocore.exceptions import ClientError
 
-from app.core.settings import get_settings
-
-
-def _get_secret_creds(secret_name: str, region: str) -> Optional[Dict[str, Any]]:
+DB_NAME = None
+class SecretCache:
     """
-    Fetch DB creds from SecretCache if available.
+    Caches AWS Secrets Manager secrets.
+    Parses JSON secrets into dictionaries; non-JSON secrets are returned as {"value": secret}."""
 
-    Expected SecretCache output keys:
-      host, user, password, database
-    """
-    try:
-        from app.utils import SecretCache
+    def __init__(self, region="us-east-1"):
+        self.client = boto3.client("secretsmanager", region_name=region)
+        self._cache = {}  # {secret_id: (expires_at, parsed_value)}
 
-        sm = SecretCache(region=region)
-        return sm.get(secret_name)
-    except Exception:
-        return None
+    def get(self, secret_id: str):
+        now = time.time()
+        ent = self._cache.get(secret_id)
+        if ent and ent[0] > now:
+            return ent[1]
+
+        try:
+            resp = self.client.get_secret_value(SecretId=secret_id)
+        except ClientError as e:
+            raise RuntimeError(f"Secrets Manager error for {secret_id}: {e}") from e
+
+        val = resp.get("SecretString") or resp["SecretBinary"].decode("utf-8")
+        try:
+            parsed = json.loads(val)
+        except json.JSONDecodeError:
+            parsed = {"value": val}
+
+        self._cache[secret_id] = (parsed)
+        return parsed
+
 
 
 def get_connection():
@@ -35,27 +52,27 @@ def get_connection():
             "Missing MySQL driver `pymysql`. Install it with `pip install pymysql`."
         ) from e
 
-    # Prefer SecretCache if present (production style).
-    secret_name = os.getenv("MYSQL_SECRET_NAME", "MySQL_local")
-    region = os.getenv("SECRET_REGION", "us-east-1")
-    secret_creds = _get_secret_creds(secret_name=secret_name, region=region)
-
-    s = get_settings()
-    host = (secret_creds or {}).get("host") or s.mysql_host
-    user = (secret_creds or {}).get("user") or s.mysql_user
-    password = (secret_creds or {}).get("password") or s.mysql_password
-    database = (secret_creds or {}).get("database") or s.mysql_db
-    port = int((secret_creds or {}).get("port") or s.mysql_port)
-
-    return pymysql.connect(
-        host=host,
-        port=port,
-        user=user,
-        password=password,
-        database=database,
-        charset="utf8mb4",
-        cursorclass=pymysql.cursors.DictCursor,
-        connect_timeout=10,
-        read_timeout=30,
-        write_timeout=30,
+    sm = SecretCache(region="us-east-1")
+    db_creds = sm.get("MySQL_local")
+    DB_HOST = db_creds.get("host")
+    DB_USER = db_creds.get("user")
+    DB_PASSWORD = db_creds.get("password")
+    DB_NAME = db_creds.get("database")
+    print("Establishing database connection...")
+    print(f"DB Host: {DB_HOST}, DB User: {DB_USER}, DB Name: {DB_NAME}")
+    connection = pymysql.connect(
+        host=DB_HOST,
+        user=DB_USER,
+        password=DB_PASSWORD,
+        database=DB_NAME
     )
+    return connection
+
+if __name__ == "__main__":
+    # Test the connection function
+    try:
+        conn = get_connection()
+        print("Database connection successful!")
+        conn.close()
+    except Exception as e:
+        print(f"Database connection failed: {e}")

@@ -2,12 +2,11 @@ import re
 from datetime import date
 from typing import Any, Dict, List, Optional
 
-from app.db.db import get_connection
-from app.core.settings import get_settings
+from app.db.db import get_connection, DB_NAME
 
 _CIN_CLEAN_RE = re.compile(r"[^A-Za-z0-9]")
-_DB_NAME = re.sub(r"[^A-Za-z0-9_]", "", get_settings().mysql_db)
-_COMPANY_TABLE_FQN = f"{_DB_NAME}.company_master_new"
+# _DB_NAME = re.sub(r"[^A-Za-z0-9_]", "", DB_NAME) # type: ignore
+_COMPANY_TABLE_FQN = f"company_master_new"
 
 
 def _clean_cin(cin: str) -> str:
